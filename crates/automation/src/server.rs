@@ -239,6 +239,10 @@ pub struct SaveParams {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PreviewParams {
+    /// Headless native layer thumbnail: isolate this layer without editing the document.
+    /// When supplied, max_side must be 1–256. Bridge screenshots reject this option.
+    #[serde(default)]
+    pub layer: Option<u64>,
     /// Headless mode only: document index (default: the active document).
     /// Bridge previews capture the app window and reject `index`.
     #[serde(default)]
@@ -940,7 +944,10 @@ impl PhotocraftMcp {
         let max = p.max_side.unwrap_or(1024);
         if let Some(r) = self
             .headless_op(move |h| {
-                let res = h.render_png(p.index, max);
+                let res = match p.layer {
+                    Some(layer) => h.render_layer_png(p.index, layer, max),
+                    None => h.render_png(p.index, max),
+                };
                 for d in h.drain_diagnostics() {
                     // Ignore a failed stderr write: the completed render must still be returned.
                     let _ = writeln!(std::io::stderr(), "warning: {d}");
@@ -957,8 +964,8 @@ impl PhotocraftMcp {
         let Some(b) = self.bridge_client() else {
             return Ok(no_backend());
         };
-        if p.index.is_some() {
-            return Ok(fail("`index` is only supported in headless mode; bridge previews capture the app window"));
+        if p.index.is_some() || p.layer.is_some() {
+            return Ok(fail("`index` and `layer` are only supported in headless mode; bridge previews capture the app window"));
         }
         self.screenshot(b, Some(max)).await
     }

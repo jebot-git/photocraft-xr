@@ -463,6 +463,27 @@ impl Headless {
         Ok(png)
     }
 
+    /// Isolated layer pixels for native dock thumbnails. The live document, its
+    /// visibility, selection and history are never changed by this read operation.
+    pub fn render_layer_png(&mut self, index: Option<usize>, layer: u64, max_side: u32) -> Result<Vec<u8>, AutomationError> {
+        let i = self.doc_index(index)?;
+        let state = self.session.documents().get(i).ok_or_else(|| AutomationError::BadRequest("document no longer exists".into()))?;
+        crate::budgets::check_preview(state.doc.size.width, state.doc.size.height, max_side)?;
+        if max_side == 0 || max_side > 256 {
+            return Err(AutomationError::BadRequest("layer thumbnail side must be 1–256 pixels".into()));
+        }
+        let mut isolated =
+            state.doc.layer(photocraft_doc::LayerId(layer)).cloned().ok_or_else(|| AutomationError::BadRequest("layer no longer exists".into()))?;
+        isolated.visible = true;
+        isolated.clipped = false;
+        let mut document = state.doc.as_ref().clone();
+        document.layers = vec![isolated];
+        let (png, warnings) = files::render_png_with_warnings(&document, max_side, None)?;
+        crate::budgets::check_png(png.len())?;
+        self.pending_diagnostics.extend(warnings);
+        Ok(png)
+    }
+
     pub fn session_list(&self) -> Value {
         photocraft_engine::inspect::session(&self.session)
     }
@@ -677,5 +698,28 @@ mod waited_error_tests {
             headless.job_poll(id),
             JobPoll::Ended(Err(AutomationError::Engine(photocraft_engine::EngineError::PsdHardBudget { required: 9000, limit: 4000, .. })))
         ));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod dome_layer_preview_tests {
+    use super::*;
+    #[test]
+    fn isolates_layer_without_mutating_document_or_history() {
+        let mut h = Headless::new();
+        h.command_run("file.new", json!({"width":8,"height":8,"background":"white"})).unwrap();
+        let background = h.inspect(None).unwrap()["activeLayer"].as_u64().unwrap();
+        h.command_run("layer.new.layer", json!({"name":"Red"})).unwrap();
+        h.command_run("edit.fill", json!({"contents":"color","color":"#ff0000"})).unwrap();
+        let before = h.inspect(None).unwrap();
+        let flattened = h.render_png(None, 32).unwrap();
+        let thumbnail = h.render_layer_png(None, background, 32).unwrap();
+        assert_ne!(flattened, thumbnail);
+        assert_eq!(before, h.inspect(None).unwrap());
+        assert!(h.render_layer_png(None, u64::MAX, 32).is_err());
+        assert!(h.render_layer_png(None, background, 0).is_err());
+        assert!(h.render_layer_png(None, background, 257).is_err());
+        assert_eq!(before, h.inspect(None).unwrap());
     }
 }
