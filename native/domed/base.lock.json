@@ -1,7 +1,7 @@
 {
   "application": "photocraft",
   "repository": "https://github.com/jebot-git/dome-craft-base.git",
-  "revision": "520ff6c96747fc55e3d1a5c8275c547a90a4fd32",
+  "revision": "cc3f28d4efe9580de710c91aec546a6b8c3af7d6",
   "upstream_revision": "6d99175b18e8b82dd7e7399a330236ffbafb5e73",
   "cargo_args": [
     "--no-default-features"
